@@ -3,6 +3,7 @@ const Vendor = require('../models/Vendor');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 const User = require('../models/User');
+const ErrorResponse = require('../utils/errorResponse');
 
 // @desc    Register Vendor
 // @route   POST /api/vendors/register
@@ -127,4 +128,116 @@ const addProduct = asyncHandler(async (req, res) => {
     res.status(201).json(product);
 });
 
-module.exports = { registerVendor, getVendorProfile, updateVendorProfile, getVendorDashboard, addProduct };
+// @desc    Get all vendors
+// @route   GET /api/vendors
+// @access  Public
+const getVendors = asyncHandler(async (req, res, next) => {
+  const vendors = await User.find({ role: 'vendor' });
+  res.status(200).json({
+    success: true,
+    count: vendors.length,
+    data: vendors
+  });
+});
+
+// @desc    Get nearby vendors
+// @route   GET /api/vendors/nearby
+// @access  Public
+const getNearbyVendors = asyncHandler(async (req, res, next) => {
+  const { longitude, latitude, maxDistance = 10000 } = req.query; // maxDistance in meters
+
+  if (!longitude || !latitude) {
+    return next(new ErrorResponse('Please provide longitude and latitude', 400));
+  }
+
+  const vendors = await User.find({
+    role: 'vendor',
+    location: {
+      $near: {
+        $geometry: {
+          type: 'Point',
+          coordinates: [parseFloat(longitude), parseFloat(latitude)]
+        },
+        $maxDistance: parseInt(maxDistance)
+      }
+    }
+  }).select('name email phone location');
+
+  res.status(200).json({
+    success: true,
+    count: vendors.length,
+    data: vendors
+  });
+});
+
+// @desc    Get single vendor
+// @route   GET /api/vendors/:id
+// @access  Public
+const getVendor = asyncHandler(async (req, res, next) => {
+  const vendor = await User.findOne({ _id: req.params.id, role: 'vendor' });
+
+  if (!vendor) {
+    return next(new ErrorResponse(`Vendor not found with id of ${req.params.id}`, 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: vendor
+  });
+});
+
+// @desc    Create new vendor
+// @route   POST /api/vendors
+// @access  Private/Admin
+const createVendor = asyncHandler(async (req, res, next) => {
+  const vendor = await User.create({
+    ...req.body,
+    role: 'vendor'
+  });
+
+  res.status(201).json({
+    success: true,
+    data: vendor
+  });
+});
+
+// @desc    Update vendor
+// @route   PUT /api/vendors/:id
+// @access  Private/Admin
+const updateVendor = asyncHandler(async (req, res, next) => {
+  let vendor = await User.findOne({ _id: req.params.id, role: 'vendor' });
+
+  if (!vendor) {
+    return next(new ErrorResponse(`Vendor not found with id of ${req.params.id}`, 404));
+  }
+
+  vendor = await User.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true
+  });
+
+  res.status(200).json({
+    success: true,
+    data: vendor
+  });
+});
+
+// @desc    Delete vendor
+// @route   DELETE /api/vendors/:id
+// @access  Private/Admin
+const deleteVendor = asyncHandler(async (req, res, next) => {
+  const vendor = await User.findOne({ _id: req.params.id, role: 'vendor' });
+
+  if (!vendor) {
+    return next(new ErrorResponse(`Vendor not found with id of ${req.params.id}`, 404));
+  }
+
+  await vendor.remove();
+
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});
+
+module.exports = { registerVendor, getVendorProfile, updateVendorProfile, getVendorDashboard, addProduct, getVendors, getNearbyVendors, getVendor, createVendor, updateVendor, deleteVendor };

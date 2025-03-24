@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const Vendor = require('../models/Vendor');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const ErrorResponse = require('../utils/errorResponse');
 
 // @desc    Search Orders
 // @route   GET /api/search/orders
@@ -42,28 +43,116 @@ const searchShops = asyncHandler(async (req, res) => {
     res.json(vendors);
 });
 
-// @desc    Search Products
-// @route   GET /api/search/products
+// @desc    Search products with filters
+// @route   GET /api/search
 // @access  Public
-// @example Usage:
-//    GET /api/search/products?query=Phone&minPrice=5000&maxPrice=20000&category=electronics&sortBy=price&order=asc
-//    Response: Returns a list of products matching the search criteria
-const searchProducts = asyncHandler(async (req, res) => {
-    const { query, minPrice, maxPrice, category, sortBy = 'price', order = 'asc' } = req.query;
-    let filter = {};
+exports.searchProducts = asyncHandler(async (req, res, next) => {
+  const {
+    keyword,
+    category,
+    minPrice,
+    maxPrice,
+    rating,
+    vendor,
+    sort,
+    page = 1,
+    limit = 10,
+    tags,
+    specifications,
+    isActive,
+    hasDiscount
+  } = req.query;
 
-    if (query) filter.name = { $regex: query, $options: 'i' };
-    if (minPrice || maxPrice) {
-        filter.price = {};
-        if (minPrice) filter.price.$gte = Number(minPrice);
-        if (maxPrice) filter.price.$lte = Number(maxPrice);
-    }
-    if (category) filter.category = category;
+  // Build query
+  const query = {};
 
-    const products = await Product.find(filter)
-        .populate('category')
-        .sort({ [sortBy]: order === 'desc' ? -1 : 1 });
-    res.json(products);
+  // Text search
+  if (keyword) {
+    query.$text = { $search: keyword };
+  }
+
+  // Category filter
+  if (category) {
+    query.category = category;
+  }
+
+  // Price range filter
+  if (minPrice || maxPrice) {
+    query.price = {};
+    if (minPrice) query.price.$gte = parseFloat(minPrice);
+    if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+  }
+
+  // Rating filter
+  if (rating) {
+    query.rating = { $gte: parseFloat(rating) };
+  }
+
+  // Vendor filter
+  if (vendor) {
+    query.vendor = vendor;
+  }
+
+  // Tags filter
+  if (tags) {
+    query.tags = { $in: tags.split(',') };
+  }
+
+  // Specifications filter
+  if (specifications) {
+    const specs = JSON.parse(specifications);
+    Object.keys(specs).forEach(key => {
+      query[`specifications.${key}`] = specs[key];
+    });
+  }
+
+  // Active status filter
+  if (isActive !== undefined) {
+    query.isActive = isActive === 'true';
+  }
+
+  // Discount filter
+  if (hasDiscount === 'true') {
+    query['discount.percentage'] = { $gt: 0 };
+    query['discount.validUntil'] = { $gt: new Date() };
+  }
+
+  // Build sort options
+  let sortOptions = {};
+  if (sort) {
+    const sortFields = sort.split(',').map(field => {
+      const order = field.startsWith('-') ? -1 : 1;
+      return [field.replace('-', ''), order];
+    });
+    sortOptions = Object.fromEntries(sortFields);
+  }
+
+  // Pagination
+  const start = (parseInt(page) - 1) * parseInt(limit);
+  const end = start + parseInt(limit);
+
+  // Execute query
+  const products = await Product.find(query)
+    .sort(sortOptions)
+    .skip(start)
+    .limit(parseInt(limit))
+    .populate('vendor', 'name email')
+    .populate('category', 'name');
+
+  // Get total count for pagination
+  const total = await Product.countDocuments(query);
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      pages: Math.ceil(total / parseInt(limit))
+    },
+    data: products
+  });
 });
 
 // @desc    Search Categories
@@ -79,4 +168,29 @@ const searchCategories = asyncHandler(async (req, res) => {
     res.json(categories);
 });
 
-module.exports = { searchOrders, searchShops, searchProducts, searchCategories };
+// @desc    Get product suggestions based on search history
+// @route   GET /api/search/suggestions
+// @access  Private
+exports.getSearchSuggestions = asyncHandler(async (req, res, next) => {
+  const { keyword } = req.query;
+
+  if (!keyword) {
+    return next(new ErrorResponse('Please provide a search keyword', 400));
+  }
+
+  const suggestions = await Product.find(
+    { $text: { $search: keyword } },
+    { score: { $meta: 'textScore' } }
+  )
+    .sort({ score: { $meta: 'textScore' } })
+    .limit(5)
+    .select('name category tags');
+
+  res.status(200).json({
+    success: true,
+    count: suggestions.length,
+    data: suggestions
+  });
+});
+
+module.exports = { searchOrders, searchShops, searchProducts, searchCategories, getSearchSuggestions };

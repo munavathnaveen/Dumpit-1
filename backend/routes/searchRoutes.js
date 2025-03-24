@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { searchOrders, searchShops, searchProducts, searchCategories } = require('../controllers/searchController');
 const { protect } = require('../middleware/auth');
+const {
+  searchProducts,
+  getSearchSuggestions
+} = require('../controllers/searchController');
 
-router.get('/orders', protect, searchOrders);
-router.get('/shops', searchShops);
-router.get('/products', searchProducts);
-router.get('/categories', searchCategories);
+// Public routes
+router.get('/', searchProducts);
+
+// Protected routes
+router.get('/suggestions', protect, getSearchSuggestions);
 
 module.exports = router;

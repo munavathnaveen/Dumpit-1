@@ -12,12 +12,26 @@ const userSchema = new mongoose.Schema({
   lastLogin: { type: Date },
   resetPasswordToken: { type: String },
   resetPasswordExpire: { type: Date },
-  purchaseHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }], 
+  purchaseHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
+  location: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number],
+      default: [0, 0]
+    }
+  },
   preferences: { 
     preferredCategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
     notifications: { type: Boolean, default: true },
   },
 }, { timestamps: true });
+
+// Add geospatial index for location-based queries
+userSchema.index({ location: '2dsphere' });
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
